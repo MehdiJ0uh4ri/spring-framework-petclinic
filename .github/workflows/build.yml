@@ -1,29 +1,93 @@
-name: Build & Test
+name: Build, Push, and Deploy to Dev
 
 on:
   push:
-    branches: [ develop ] # add main later
+    branches: [ develop ]
   pull_request:
     branches: [ develop ]
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/petclinic
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+    outputs:
+      image_tag: ${{ steps.get_sha.outputs.sha }}
     steps:
-      - uses: actions/checkout@v3
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get short SHA
+        id: get_sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
-      
+          java-version: '17'
+          cache: maven
+
       - name: Build with Maven
-        run: ./mvnw clean package
-      
-      - name: Run Tests
-        run: ./mvnw test
-      
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
+        run: ./mvnw -B clean package
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name == 'push' }} # Only push on push events, not PRs
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.get_sha.outputs.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' # Only deploy on push events, not PRs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Kubeconfig Secret
+        run: |
+          if [ -z "${{ secrets.KUBE_CONFIG_DATA }}" ]; then
+            echo "KUBE_CONFIG_DATA secret is not set. Please set it in repository secrets."
+            exit 1
+          fi
+
+      - name: Setup Kubeconfig
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_DATA" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Verify Kubernetes cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl config view
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.12.0
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install petclinic ./helm/petclinic \
+            --namespace default \
+            --set image.repository=${{ env.IMAGE_NAME }} \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set ingress.enabled=true \
+            --set ingress.host=petclinic.${{ secrets.K3S_INGRESS_IP }}.nip.io
