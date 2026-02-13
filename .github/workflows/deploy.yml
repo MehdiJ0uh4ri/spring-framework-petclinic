@@ -1,0 +1,33 @@
+name: Deploy to k3s
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Kubeconfig
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_DATA" > ~/.kube/config
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.12.0
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install petclinic ./helm/petclinic 
+            --namespace default 
+            --set image.repository=ghcr.io/${{ github.repository_owner }}/petclinic 
+            --set image.tag=${{ github.sha }} 
+            --set ingress.enabled=true 
+            --set ingress.host=petclinic.${{ secrets.K3S_INGRESS_IP }}.nip.io
