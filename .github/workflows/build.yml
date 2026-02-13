@@ -64,6 +64,16 @@ jobs:
             exit 1
           fi
 
+      - name: Verify Kubeconfig Content
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | grep -q "^apiVersion:"
+          if [ $? -ne 0 ]; then
+            echo "Error: KUBE_CONFIG_DATA secret does not appear to be a valid kubeconfig file."
+            echo "It should be the full YAML content of your kubeconfig, starting with 'apiVersion: v1'."
+            exit 1
+          fi
+          echo "Kubeconfig secret content seems to have the correct starting line."
+
       - name: Setup Kubeconfig
         env:
           KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
