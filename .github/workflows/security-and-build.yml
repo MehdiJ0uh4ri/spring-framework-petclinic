@@ -48,9 +48,8 @@ jobs:
       # ========== Step 4: Dependency Vulnerability Scan ==========
       - name: OWASP Dependency-Check
         uses: dependency-check/Dependency-Check_Action@main
+
         env:
-          # Reset JAVA_HOME so the container uses its own Java
-          # per action's README to avoid 'JAVA_HOME ... not defined correctly'
           JAVA_HOME: /opt/jdk
         with:
           project: 'PetClinic'
@@ -60,6 +59,8 @@ jobs:
           args: >-
             --enableExperimental
             --failOnCVSS 7
+            --disableCentral
+
 
       # ========== Step 5: Upload Dependency Results ==========
       - name: Upload dependency scan results
