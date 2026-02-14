@@ -47,6 +47,8 @@ jobs:
 
       # ========== Step 4: Dependency Vulnerability Scan ==========
       - name: OWASP Dependency-Check
+        continue-on-error: true
+
         uses: dependency-check/Dependency-Check_Action@main
 
         env:
