@@ -5,9 +5,9 @@ name: Security & Docker Build
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [ develop ]
   pull_request:
-    branches: [ develop, main ]
+    branches: [ develop ]
 
 env:
   JAVA_VERSION: '17'
@@ -25,16 +25,6 @@ jobs:
       security-events: write
 
     steps:
-      
-      # --- One-time normalization (place BEFORE any docker build/push steps) ---
-      - name: Set lowercase image name
-        run: |
-          # Compose the repo path in lowercase and keep your extra "/petclinic" suffix
-          # Using 'tr' works on all runners (Bash 3+ / macOS & Ubuntu)
-          REPO_LC="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          echo "IMAGE_NAME=${{ env.REGISTRY }}/${REPO_LC}/petclinic" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG_LATEST=latest" >> "$GITHUB_ENV"
 
       # ========== Step 1: Checkout ==========
       - name: Checkout code
@@ -97,13 +87,15 @@ jobs:
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
 
       # ========== Step 7: Build Docker Image ==========
-      - name: Build Docker image
-        run: |
-          docker build \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            .
-          echo "✅ Docker image built: ${{ github.sha }}"
+      # FIX: Use the Secret here too!
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.APP_IMAGE }}:${{ github.sha }}
+            ${{ secrets.APP_IMAGE }}:latest
 
       # ========== Step 8: Scan Image with Trivy ==========
       - name: Scan Docker image with Trivy

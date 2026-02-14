@@ -47,19 +47,15 @@ resource "docker_container" "mysql" {
 
 # Spring PetClinic Application
 resource "docker_image" "app" {
-  name = "petclinic:${var.app_version}"
+    name = var.docker_image
   
-  build {
-    context    = var.app_context
-    dockerfile = "${var.app_context}/Dockerfile"
-  }
 
-  keep_locally = false
+  keep_locally = true
 }
 
 resource "docker_container" "app" {
-  name  = "${var.project_name}-app"
-  image = docker_image.app.image_id
+    name  = "${var.project_name}-app"
+    image = docker_image.app.image_id
 
   env = [
     "SPRING_DATASOURCE_URL=jdbc:mysql://${docker_container.mysql.name}:3306/${var.db_name}",

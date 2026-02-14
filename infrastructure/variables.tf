@@ -21,8 +21,7 @@ variable "db_name" {
 
 variable "db_username" {
   type      = string
-  default   = "petclinic"
-  sensitive = true
+  sensitive = true # Hides value in CLI output
 }
 
 variable "db_password" {
@@ -33,4 +32,9 @@ variable "db_password" {
 variable "enable_prometheus" {
   type    = bool
   default = false
+}
+
+variable "docker_image" {
+  description = "The full Docker image name to deploy (e.g., ghcr.io/user/repo:sha)"
+  type        = string
 }
