@@ -16,3 +16,8 @@ target/
 
 # OS
 .DS_Store
+
+
+#Terraform
+infrastructure\.terraformignore
+

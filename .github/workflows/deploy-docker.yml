@@ -1,0 +1,106 @@
+name: Deploy with Terraform + Docker
+
+on:
+  push:
+    branches: [ develop ]
+  pull_request:
+    branches: [ develop ]
+
+env:
+  TF_VERSION: 1.6.0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # ========== Checkout ==========
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      # ========== Setup Terraform ==========
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      # ========== Terraform Init ==========
+      - name: Terraform Init
+        working-directory: infrastructure
+        run: terraform init
+      
+      # ========== Terraform Plan ==========
+      - name: Terraform Plan
+        working-directory: infrastructure
+        run: terraform plan -var-file="terraform.tfvars"
+      
+      # ========== Terraform Apply ==========
+      - name: Terraform Apply
+        working-directory: infrastructure
+        run: terraform apply -auto-approve -var-file="terraform.tfvars"
+      
+      # ========== Get Outputs ==========
+      - name: Get Terraform Outputs
+        working-directory: infrastructure
+        run: |
+          echo "=== Deployment Complete ===" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "App URL: $(terraform output -raw app_url)" >> $GITHUB_STEP_SUMMARY
+          echo "MySQL Host: $(terraform output -raw mysql_host)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Connection Info saved to: infrastructure/connection-info.json" >> $GITHUB_STEP_SUMMARY
+      
+      # ========== Wait for Application ==========
+      - name: Wait for Application to be Ready
+        run: |
+          echo "Waiting for application to be ready..."
+          for i in {1..60}; do
+            if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              echo "✅ Application is ready!"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "❌ Application failed to start"
+              exit 1
+            fi
+            echo "Attempt $i/60..."
+            sleep 2
+          done
+      
+      # ========== Smoke Tests ==========
+      - name: Run Smoke Tests
+        run: |
+          echo "Testing application..."
+          curl -v http://localhost:8080/ || exit 1
+          curl -v http://localhost:8080/actuator/health || exit 1
+          echo "✅ Smoke tests passed"
+      
+      # ========== Show Container Logs ==========
+      - name: Show Container Logs
+        if: always()
+        run: |
+          echo "=== Application Container Logs ===" 
+          docker logs petclinic-app || true
+          echo ""
+          echo "=== MySQL Container Logs ===" 
+          docker logs petclinic || true
+      
+      # ========== List Running Containers ==========
+      - name: List Containers
+        run: docker ps -a
+      
+      # ========== Save Connection Info ==========
+      - name: Save Connection Info
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: connection-info
+          path: infrastructure/connection-info.json
+          retention-days: 1
+      
+      # ========== Cleanup (Optional) ==========
+      - name: Terraform Destroy
+        if: always()
+        working-directory: infrastructure
+        run: terraform destroy -auto-approve -var-file="terraform.tfvars"
+        continue-on-error: true
