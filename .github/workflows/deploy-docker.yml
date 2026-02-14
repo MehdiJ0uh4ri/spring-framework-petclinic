@@ -4,7 +4,7 @@ on:
   # SCENARIO 1: Automatic Chaining
   # Triggers when the "Security & Docker Build" workflow completes
   workflow_run:
-    workflows: ["Security Scan & Docker Build"] # Must match the 'name:' in your build file exactly
+    workflows: ["Security & Docker Build"] # Must match the 'name:' in your build file exactly
     branches: [develop]
     types: [completed]
 
