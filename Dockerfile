@@ -8,16 +8,15 @@ WORKDIR /build
 # Copy only pom.xml first (for better caching)
 COPY pom.xml .
 
-# Download dependencies
-RUN ./mvnw dependency:resolve
+# FIX: Use 'mvn' directly. The base image already has it!
+# No need to copy mvnw or deal with Windows line endings.
+RUN mvn dependency:resolve
 
 # Copy source code
 COPY src ./src
-COPY .mvn ./.mvn
-COPY mvnw .
 
 # Build application
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # ============================================================================
 # Stage 2: Runtime (Minimal image)
@@ -33,7 +32,7 @@ RUN addgroup -S petclinic && adduser -S petclinic -G petclinic
 WORKDIR /app
 
 # Copy JAR from builder
-COPY --from=builder --chown=petclinic:petclinic /build/target/spring-petclinic-*.jar app.jar
+COPY --from=builder --chown=petclinic:petclinic /build/target/*.jar app.jar
 
 # Switch to non-root user
 USER petclinic
