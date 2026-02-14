@@ -5,7 +5,7 @@ on:
   # Triggers when the "Security & Docker Build" workflow completes
   workflow_run:
     workflows: ["Security & Docker Build"] # Must match the 'name:' in your build file exactly
-    branches: [develop]
+    branches: [ develop ]
     types: [completed]
 
 env:
@@ -14,6 +14,8 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Only deploy if the "Security & Docker Build" workflow succeeded
+    if: github.event.workflow_run.conclusion == 'success'
     
     steps:
       # ========== Checkout ==========
@@ -104,14 +106,14 @@ jobs:
       - name: List Containers
         run: docker ps -a
       
-      # ========== Save Connection Info ==========
       - name: Save Connection Info
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # <--- UPDATED
         with:
           name: connection-info
           path: infrastructure/connection-info.json
           retention-days: 1
+          overwrite: true  # v4 feature: prevents errors if the artifact already exists
       
       # ========== Cleanup (Optional) ==========
       - name: Terraform Destroy
