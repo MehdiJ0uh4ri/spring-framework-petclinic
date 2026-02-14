@@ -92,7 +92,7 @@ jobs:
 
       # ========== Step 8: Scan Image with Trivy ==========
       - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@v0.28.0   # pin to a released tag
+        uses: aquasecurity/trivy-action@master   # pin to a released tag
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: 'sarif'
