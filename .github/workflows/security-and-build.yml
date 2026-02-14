@@ -77,7 +77,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./mvnw sonar:sonar \
-            -Dsonar.projectKey=petclinic \
+            -Dsonar.projectKey=mehdij0uh4ri \
             -Dsonar.organization=mehdij0uh4ri \
             -Dsonar.host.url=https://sonarcloud.io \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
