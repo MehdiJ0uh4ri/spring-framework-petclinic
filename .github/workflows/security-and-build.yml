@@ -9,6 +9,7 @@ on:
   pull_request:
     branches: [ develop ]
 
+    
 env:
   JAVA_VERSION: '17'
   REGISTRY: ghcr.io

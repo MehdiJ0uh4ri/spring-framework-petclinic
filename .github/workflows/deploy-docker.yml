@@ -6,6 +6,7 @@ on:
   workflow_run:
     workflows: ["Security & Docker Build"] # Must match the 'name:' in your build file exactly
     branches: [develop]
+    
     types: [completed]
 
 env:
