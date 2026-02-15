@@ -13,7 +13,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     # Only deploy if the "Security & Docker Build" workflow succeeded
     if: github.event.workflow_run.conclusion == 'success'
     
