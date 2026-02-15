@@ -11,7 +11,7 @@ on:
 env:
   TF_VERSION: 1.9.0
    
-  
+
 
 jobs:
   deploy:
@@ -43,16 +43,16 @@ jobs:
           echo "Step 1: Remove Docker v29..."
           sudo apt-get remove -y docker-ce docker-ce-cli containerd.io || true
           
-          echo "Step 2: Install Docker 28.5.2 (stable version)..."
-          sudo apt-get update
-          sudo apt-get install -y \
-            docker-ce=5:28.5.2-1~ubuntu.22.04~jammy \
-            docker-ce-cli=5:28.5.2-1~ubuntu.22.04~jammy \
-            containerd.io=1.7.x* 2>/dev/null || \
-          sudo apt-get install -y \
-            docker-ce=5:28.5.2-1~ubuntu.22.04~jammy \
-            docker-ce-cli=5:28.5.2-1~ubuntu.22.04~jammy \
-            containerd.io
+          echo "Step 3: Installing Docker 24.0.7..."
+          # We define the specific version string here
+          VERSION_STRING=5:24.0.7-1~ubuntu.22.04~jammy
+          
+          sudo apt-get install -y --allow-downgrades \
+            docker-ce=$VERSION_STRING \
+            docker-ce-cli=$VERSION_STRING \
+            containerd.io \
+            docker-buildx-plugin \
+            docker-compose-plugin
           
           echo "Step 3: Start Docker..."
           sudo systemctl start docker
