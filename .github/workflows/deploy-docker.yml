@@ -9,7 +9,7 @@ on:
     types: [completed]
 
 env:
-  TF_VERSION: 1.6.0
+  TF_VERSION: 1.9.0
 
 jobs:
   deploy:
@@ -21,6 +21,9 @@ jobs:
       # ========== Checkout ==========
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          # CRITICAL: Deploy the specific commit that triggered the build
+          ref: ${{ github.event.workflow_run.head_sha }}
       
       # FIX: Force lowercase image name (GHCR requirement)
       - name: Set Image Name
