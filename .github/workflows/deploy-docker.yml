@@ -55,7 +55,7 @@ jobs:
       # ========== Terraform Init ==========
       - name: Terraform Init
         working-directory: infrastructure
-        run: terraform init
+        run: terraform init -upgrade
       
       # ========== Terraform Plan ==========
       - name: Terraform Plan
