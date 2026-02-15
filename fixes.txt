@@ -1,0 +1,504 @@
+Searching the Internet, I found this JetBrains forum post from 11 Nov 2025 which seemed to show many people with a similar error, which started happening suddenly today.
+
+Therefore I concluded this Docker update includes a breaking change, and indeed this turns out to be so:
+
+    The daemon now requires API version v1.44 or later (Docker v25.0+).
+
+I ran this command to determine what version to downgrade to:
+
+apt list -a docker-ce | head
+
+Output:
+
+Listing...
+docker-ce/jammy,now 5:29.0.0-1~ubuntu.22.04~jammy amd64 [installed]
+docker-ce/jammy 5:28.5.2-1~ubuntu.22.04~jammy amd64
+docker-ce/jammy 5:28.5.1-1~ubuntu.22.04~jammy amd64
+docker-ce/jammy 5:28.5.0-1~ubuntu.22.04~jammy amd64
+
+To downgrade from 5:29 to 5:28.5.2 I ran:
+
+sudo apt remove docker-ce docker-ce-cli containerd.io
+sudo apt install -y \
+    docker-ce=5:28.5.2-1~ubuntu.22.04~jammy \
+    docker-ce-cli=5:28.5.2-1~ubuntu.22.04~jammy \
+    containerd.io
+sudo systemctl restart docker
+docker version # To check we are now on the correct Docker version
+
+
+
+
+
+
+
+This can be resolved without having to downgrade Docker. Add a file, /etc/docker/daemon.json, containing
+
+{"min-api-version": "1.32"}
+
+Then execute sudo systemctl restart docker.
+
+Use whatever minimum API version is reported in your case. In this case, it was 1.32*. In other cases, it might be different, like 1.24, depending on the system.
+
+
+
+
+
+here is an issue raised with Testcontainers about this.
+
+If you can run Testcontainers 2.x, update to 2.0.2 or later. If not, update to 1.21.4.
+
+If you cannot update at all for now, the following hotfix can be used as a workaround:
+
+echo api.version=1.44 >> ~/.docker-java.properties
+
+
+
+
+
+    Error response from daemon: client version 1.41 is too old.
+
+Is this still an issue? It could be the version of the kreuzworker/docker plugin is old. You could try change it to 3.6.2 and see if it behaves better? Your version of docker seems OK. Might also be worth double checking the version of terraform you’re using too.
+
+
+
+
+
+
+Module
+
+Core
+Testcontainers version
+
+2.0.1
+Using the latest Testcontainers version?
+
+Yes
+Host OS
+
+Linux
+Host Arch
+
+x86
+Docker version
+
+Client: Docker Engine - Community
+ Version:           29.0.0
+ API version:       1.52
+ Go version:        go1.25.4
+ Git commit:        3d4129b
+ Built:             Mon Nov 10 21:46:24 2025
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.0.0
+  API version:      1.52 (minimum version 1.44)
+  Go version:       go1.25.4
+  Git commit:       d105562
+  Built:            Mon Nov 10 21:46:24 2025
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.1.5
+  GitCommit:        fcd43222d6b07379a4be9786bda52438f0dd16a1
+ runc:
+  Version:          1.3.3
+  GitCommit:        v1.3.3-0-gd842d771
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+
+What happened?
+
+After updating Docker to version 29, the Docker environment could no longer be found.
+After downgrading to version 28.5.2, it worked again.
+
+According to Docker, there are breaking changes in this version.
+Relevant log output
+
+java.lang.RuntimeException: Could not start local database
+	at base.database.LocalDatabaseExtension.beforeAll(LocalDatabaseExtension.java:78)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: java.lang.IllegalStateException: Could not find a valid Docker environment. Please see logs and check configuration
+	at org.testcontainers.dockerclient.DockerClientProviderStrategy.lambda$getFirstValidStrategy$7(DockerClientProviderStrategy.java:274)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at org.testcontainers.dockerclient.DockerClientProviderStrategy.getFirstValidStrategy(DockerClientProviderStrategy.java:265)
+	at org.testcontainers.DockerClientFactory.getOrInitializeStrategy(DockerClientFactory.java:154)
+	at org.testcontainers.DockerClientFactory.client(DockerClientFactory.java:196)
+	at org.testcontainers.DockerClientFactory$1.getDockerClient(DockerClientFactory.java:108)
+	at com.github.dockerjava.api.DockerClientDelegate.authConfig(DockerClientDelegate.java:109)
+	at org.testcontainers.containers.GenericContainer.start(GenericContainer.java:316)
+	at base.database.DockerMariaDB.startContainer(DockerMariaDB.java:32)
+	at base.database.LocalDatabase.startDockerMariaDB(LocalDatabase.java:36)
+	at base.database.LocalDatabase.start(LocalDatabase.java:28)
+	at base.database.LocalDatabaseExtension.beforeAll(LocalDatabaseExtension.java:58)
+	... 1 more
+
+Additional Information
+
+No response
+Activity
+Next
+simi1401
+added
+type/bug
+on Nov 11, 2025
+matzegebbe
+matzegebbe commented on Nov 11, 2025
+matzegebbe
+on Nov 11, 2025 · edited by matzegebbe
+
+Looks like quite a big jump in the Docker API - from minimum version 1.24 to 1.44.
+
+Our Testcontainers setup reports:
+
+    Client version 1.32 is too old. Minimum supported API version is 1.44. Please upgrade your client to a newer version.
+
+Image
+
+podman run --rm --privileged -it docker:28-dind
+# vs
+podman run --rm --privileged -it docker:29-dind
+
+docker:29-dind was released Nov 11, 2025 at 7:08 am (4h ago by writing this) https://hub.docker.com/_/docker/tags?name=-dind
+msstaicu
+msstaicu commented on Nov 11, 2025
+msstaicu
+on Nov 11, 2025
+
+There is this code that sets the TC version if it cannot find a declared one:
+
+`public static DockerClient getClientForConfig(TransportConfig transportConfig) {
+final DockerHttpClient dockerHttpClient;
+
+    String transportType = TestcontainersConfiguration.getInstance().getTransportType();
+    switch (transportType) {
+        case "httpclient5":
+            dockerHttpClient =
+                new ZerodepDockerHttpClient.Builder()
+                    .dockerHost(transportConfig.getDockerHost())
+                    .sslConfig(transportConfig.getSslConfig())
+                    .build();
+            break;
+        default:
+            throw new IllegalArgumentException("Unknown transport type '" + transportType + "'");
+    }
+
+    DefaultDockerClientConfig.Builder configBuilder = DefaultDockerClientConfig.createDefaultConfigBuilder();
+
+    if (configBuilder.build().getApiVersion() == RemoteApiVersion.UNKNOWN_VERSION) {
+        configBuilder.withApiVersion(RemoteApiVersion.VERSION_1_32);
+    }
+    Map<String, String> headers = new HashMap<>();
+    headers.put("x-tc-sid", DockerClientFactory.SESSION_ID);
+    headers.put("User-Agent", String.format("tc-java/%s", DockerClientFactory.TESTCONTAINERS_VERSION));
+
+    return DockerClientImpl.getInstance(
+        new AuthDelegatingDockerClientConfig(
+            configBuilder.withDockerHost(transportConfig.getDockerHost().toString()).build()
+        ),
+        new HeadersAddingDockerHttpClient(dockerHttpClient, headers)
+    );
+}
+
+`
+
+This is causing the test to run with an old client version. I don't know what was changed in the new docker release, actively looking in to this also.
+
+
+
+Same problem here.
+
+My host is a Debian 12 and the official Docker package was updated today.
+
+Apparently it has now a minimum 1.44 level API requirement and it's rejecting connections:
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.0.0
+  API version:      1.52 (minimum version 1.44)
+  Go version:       go1.25.4
+  Git commit:       d105562
+  Built:            Mon Nov 10 21:46:24 2025
+  OS/Arch:          linux/amd64
+  Experimental:     false
+
+Downgraded Docker to previous version and Traefik works again:
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          28.5.2
+  API version:      1.51 (minimum version 1.24)
+  Go version:       go1.25.3
+  Git commit:       89c5e8f
+  Built:            Wed Nov  5 14:43:25 2025
+  OS/Arch:          linux/amd64
+  Experimental:     false
+
+midnightslicer
+midnightslicer commented on Nov 11, 2025
+midnightslicer
+on Nov 11, 2025
+
+Same here on Ubuntu 24.04.3 LTS.
+
+I just updated to Docker 29 and it broke. It seems Docker upped the minimum API version.
+rafipiccolo
+rafipiccolo commented on Nov 11, 2025
+rafipiccolo
+on Nov 11, 2025
+
+1.24 is so wildly old. I hope it wont take too long to release a new version.
+
+to revert on ubuntu i did
+
+# to get available version
+apt-cache madison docker-ce
+
+# install specific version
+apt-get install docker-ce=5:28.5.2-1~ubuntu.24.04~noble \
+                     docker-ce-cli=5:28.5.2-1~ubuntu.24.04~noble \
+                     containerd.io docker-buildx-plugin docker-compose-plugin
+
+
+
+
+
+
+Docker Engine v29: Foundational Updates for the Future
+Posted Nov 11, 2025
+Colin Hemmings
+
+This post is for Linux users running Docker Engine (Community Edition) directly on their hosts. Docker Desktop users don’t need to take any action — Engine updates are included automatically in future Desktop releases.
+
+Docker Engine v29 is a foundational release that sets the stage for the future of the Docker platform. While it may not come with flashy new features, it introduces a few significant under-the-hood changes that simplify our architecture and improve ecosystem alignment:
+
+    Minimum API version update
+    The Containerd image store is now the default for new installations.
+    Migration to Go modules
+    Experimental Support for NFTables
+
+These changes improve maintainability, developer experience, and interoperability across the container ecosystem.
+
+Minimum API Version Update
+
+Docker versions older than v25 are now end of life, and as such, we have increased the Minimum API version to 1.44 (Moby v25). 
+
+If you are getting the following error, you will need to update to a newer client or follow the mitigation steps to override the min-version
+
+Error response from daemon: client version 1.43 is too old.
+Minimum supported API version is 1.44, please upgrade your client to a newer version
+
+Override the minimum API version
+
+There are two methods to launch dockerd with a lower minimum API version. Additional information can be found on docs.docker.com
+
+Using flags when starting dockerd
+
+Launch dockerd with the DOCKER_MIN_API_VERSION set to the previous value. For example:
+1
+	
+DOCKER_MIN_API_VERSION=1.24 dockerd
+
+Using a JSON configuration file — daemon.json
+
+Set min-api-version in your daemon.json file.
+1
+2
+3
+	
+{
+  "min-api-version": "1.24"
+}
+
+Containerd Image Store Becomes the Default
+
+Why We Made This Change
+
+The Containerd runtime originated as a core component of Docker Engine and was later split out and donated to the Cloud Native Computing Foundation (CNCF). It now serves as the industry-standard container runtime, powering Kubernetes and many other platforms.
+
+While Docker introduced containerd for container execution years ago, we continued using the graph driver storage backend for managing image layers. Meanwhile, containerd evolved its own image content store and snapshotter framework, designed for modularity, performance, and ecosystem alignment.
+
+To ensure stability, Docker has been gradually migrating to the containerd image store over time. Docker Desktop has already used the containerd image store as the default for most of the past year. With Docker Engine v29, this migration takes the next step by becoming the default in the Moby engine.
+
+
+
+
+
+
+docker compose up returns the message:
+
+Error response from daemon: client version 1.41 is too old. Minimum supported API version is 1.44, please upgrade your client to a newer version
+
+However, the output from docker version reports API version 1.52:
+
+Client: Docker Engine - Community
+ Version:           29.1.2
+ API version:       1.52
+ Go version:        go1.25.5
+ Git commit:        890dcca
+ Built:             Tue Dec  2 21:55:14 2025
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.1.2
+  API version:      1.52 (minimum version 1.44)
+  Go version:       go1.25.5
+  Git commit:       de45c2a
+  Built:            Tue Dec  2 21:55:14 2025
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.2.0
+  GitCommit:        1c4457e00facac03ce1d75f7b6777a7a851e5c41
+ runc:
+  Version:          1.3.4
+  GitCommit:        v1.3.4-0-gd6d73eb8
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+
+docker compose version reports: Docker Compose Version v2.2.3
+
+There are no further updates available when using apt upgrade.
+
+I do not have the docker API version defined in either an environment variable or the daemon.json config file.
+
+I have seen other people solve this problem by downgrading docker. I would rather stay up to date with the versions.
+
+I am using pop_os
+
+Distributor ID: Pop
+Description:    Pop!_OS 22.04 LTS
+Release:    22.04
+Codename:   jammy
+
+    dockerdocker-compose
+
+Share
+Improve this question
+Follow
+edited Dec 8, 2025 at 15:58
+asked Dec 8, 2025 at 8:47
+Morten Toudahl's user avatar
+Morten Toudahl
+6311 silver badge44 bronze badges
+
+    Are you running docker compose or docker-compose? – 
+    Gerald Schneider
+    Commented Dec 8, 2025 at 8:55
+    docker compose – 
+    Morten Toudahl
+    Commented Dec 8, 2025 at 11:46
+    2
+    I would like to note that i do not appreciate the edit of the title. The way it is written now assumes the problem. How do you know that it is the client that reports the wrong version? Docker wasn't even installed when the API version 1.41 was current. The host has never used 1.41. – 
+    Morten Toudahl
+    Commented Dec 8, 2025 at 12:24
+    What version of docker compose are you running? Include the output of docker compose version. – 
+    BMitch
+    Commented Dec 8, 2025 at 13:43
+    Thank you @BMitch. The version is 2.2.3 - I have edited into the post. – 
+    Morten Toudahl
+    Commented Dec 8, 2025 at 15:59
+
+Show 2 more comments
+1 Answer
+Sorted by:
+9
+
+Your version of docker compose is out of date. The current release is v5.0.0. This is a plugin to the docker CLI, so only upgrading the CLI will not upgrade the compose plugin depending on how you have installed each.
+
+The steps to upgrade compose depend on how you have installed it. On Debian, I have it installed via the docker-compose-plugin package in apt. If you manually installed it, you may see the binary in your home directory $HOME/.docker/cli-plugins or system wide in a location like /usr/local/lib/docker/cli-plugins. The compose repo has more details: https://github.com/docker/compose#where-to-get-docker-compose
+
+
+
+
+
+
+
+
+
+Description
+
+On Ubuntu 22.04.5, since a recent apt-get upgrade which brought docker -ce version 29.x instead of 28.x, I now met this error while running some compose commands:
+
+$ docker compose ps 
+Error response from daemon: client version 1.42 is too old. Minimum supported API version is 1.44, please upgrade your client to a newer version
+
+while:
+
+$ docker version
+Client: Docker Engine - Community
+ Version:           29.0.2
+ API version:       1.52
+ Go version:        go1.25.4
+ Git commit:        8108357
+ Built:             Mon Nov 17 12:33:14 2025
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.0.2
+  API version:      1.52 (minimum version 1.44)
+  Go version:       go1.25.4
+  Git commit:       e9ff10b
+  Built:            Mon Nov 17 12:33:14 2025
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.1.5
+  GitCommit:        fcd43222d6b07379a4be9786bda52438f0dd16a1
+ runc:
+  Version:          1.3.3
+  GitCommit:        v1.3.3-0-gd842d771
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+
+and:
+
+$ docker compose version
+Docker Compose version v2.5.0
+
+Also:
+
+apt-cache policy docker-ce
+docker-ce:
+  Installed: 5:29.0.2-1~ubuntu.22.04~jammy
+  Candidate: 5:29.0.2-1~ubuntu.22.04~jammy
+Version table:
+ ...
+
+Steps To Reproduce
+
+docker compose ps simply raises:
+
+Error response from daemon: client version 1.42 is too old. Minimum supported API version is 1.44, please upgrade your client to a newer version
+
+Compose Version
+
+Docker Compose version v2.5.0
+
+Docker Environment
+
+Client: Docker Engine - Community
+ Version:    29.0.2
+ Context:    default
+ Debug Mode: false
+ Plugins:
+  buildx: Docker Buildx (Docker Inc.)
+    Version:  v0.30.0
+    Path:     /usr/libexec/docker/cli-plugins/docker-buildx
+  compose: Docker Compose (Docker Inc.)
+    Version:  v2.5.0
+    Path:     /usr/local/lib/docker/cli-plugins/docker-compose
+
+Server:
+ Containers: 12
+  Running: 12
+  Paused: 0
