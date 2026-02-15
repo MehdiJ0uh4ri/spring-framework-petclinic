@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-22.04
     # Only deploy if the "Security & Docker Build" workflow succeeded
     if: github.event.workflow_run.conclusion == 'success'
+    env:
+      # Ensure Docker API used by Terraform's Docker provider is compatible
+      DOCKER_API_VERSION: '1.44'
     
     steps:
       # ========== Checkout ==========
@@ -28,6 +31,18 @@ jobs:
       # FIX: Force lowercase image name (GHCR requirement)
       - name: Set Image Name
         run: echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')/petclinic" >> $GITHUB_ENV
+
+      # ========== Ensure runner has a compatible Docker version ==========
+      - name: Install/Upgrade Docker Engine
+        run: |
+          sudo apt-get update
+          sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
+          sudo apt-get install -y ca-certificates curl gnupg lsb-release
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          docker --version
 
       # ========== Setup Terraform ==========
       - name: Setup Terraform
@@ -64,8 +79,7 @@ jobs:
           
           # 2. Construct the Image using your APP_IMAGE secret + the Dynamic Tag
           # Assuming secrets.APP_IMAGE is "ghcr.io/mehdij0uh4ri/petclinic"
-          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ env.SELECTED_TAG }}"
-          DOCKER_API_VERSION: "1.44"
+          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
           
       # ========== Get Outputs ==========
       - name: Get Terraform Outputs
