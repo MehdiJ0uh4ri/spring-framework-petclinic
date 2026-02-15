@@ -1,0 +1,7 @@
+   2 git add infrastructure\main.tf
+   3 git commit -m "fix version on main.tf"
+   4 git checkout main
+   5 git merge develop
+   6 git push origin main
+   7 git checkout develop
+   8 git push origin develop
