@@ -10,7 +10,7 @@ on:
 
 env:
   TF_VERSION: 1.9.0
-  DOCKER_API_VERSION: '1.44'
+   
 
 jobs:
   deploy:
@@ -19,7 +19,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     env:
       # Ensure Docker API used by Terraform's Docker provider is compatible
-      DOCKER_API_VERSION: '1.44'
+       
       TF_VERSION: 1.9.0
     
     steps:
@@ -34,17 +34,41 @@ jobs:
       - name: Set Image Name
         run: echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')/petclinic" >> $GITHUB_ENV
 
-      # ========== Ensure runner has a compatible Docker version ==========
-      - name: Install/Upgrade Docker Engine
+      # ========== Setup Docker ==========
+      - name: Setup Docker 28.5.2 (Stable, Pre-v29)
         run: |
+          set -e
+          
+          echo "Step 1: Remove Docker v29..."
+          sudo apt-get remove -y docker-ce docker-ce-cli containerd.io || true
+          
+          echo "Step 2: Install Docker 28.5.2 (stable version)..."
           sudo apt-get update
-          sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-          sudo apt-get install -y ca-certificates curl gnupg lsb-release
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          sudo apt-get install -y \
+            docker-ce=5:28.5.2-1~ubuntu.22.04~jammy \
+            docker-ce-cli=5:28.5.2-1~ubuntu.22.04~jammy \
+            containerd.io=1.7.x* 2>/dev/null || \
+          sudo apt-get install -y \
+            docker-ce=5:28.5.2-1~ubuntu.22.04~jammy \
+            docker-ce-cli=5:28.5.2-1~ubuntu.22.04~jammy \
+            containerd.io
+          
+          echo "Step 3: Start Docker..."
+          sudo systemctl start docker
+          sleep 2
+          
+          echo "Step 4: Verify installation..."
+          echo "Docker Version:"
           docker --version
+          echo ""
+          echo "Docker API Version:"
+          docker version | grep "API version" || true
+          echo ""
+          
+          echo "Step 5: Test Docker..."
+          docker run --rm hello-world
+          
+          echo "✅ Docker setup complete"
 
       # ========== Setup Terraform ==========
       - name: Setup Terraform
@@ -63,7 +87,7 @@ jobs:
         run: terraform plan -var-file="terraform.tfvars"
         env:
           # FIX: Same here
-          DOCKER_API_VERSION: "1.44"
+           
           TF_VERSION: 1.9.0
           # ADD THESE LINES HERE TOO:
           TF_VAR_db_username: ${{ secrets.DB_USER }}
@@ -84,7 +108,7 @@ jobs:
           # 2. Construct the Image using your APP_IMAGE secret + the Dynamic Tag
           # Assuming secrets.APP_IMAGE is "ghcr.io/mehdij0uh4ri/petclinic"
           TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
-          DOCKER_API_VERSION: "1.44"
+           
           
 
       # ========== Get Outputs ==========
@@ -152,7 +176,7 @@ jobs:
       - name: Terraform Destroy
         if: always()
         env:
-          DOCKER_API_VERSION: '1.44'  # ← Must have this too
+             # ← Must have this too
           DOCKER_HOST: unix:///var/run/docker.sock
         working-directory: infrastructure
         run: terraform destroy -auto-approve -var-file="terraform.tfvars"
