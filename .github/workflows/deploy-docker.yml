@@ -10,6 +10,7 @@ on:
 
 env:
   TF_VERSION: 1.9.0
+  DOCKER_API_VERSION: '1.44'
 
 jobs:
   deploy:
@@ -19,6 +20,7 @@ jobs:
     env:
       # Ensure Docker API used by Terraform's Docker provider is compatible
       DOCKER_API_VERSION: '1.44'
+      TF_VERSION: 1.9.0
     
     steps:
       # ========== Checkout ==========
@@ -62,11 +64,12 @@ jobs:
         env:
           # FIX: Same here
           DOCKER_API_VERSION: "1.44"
+          TF_VERSION: 1.9.0
           # ADD THESE LINES HERE TOO:
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
           TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"      
-
+          DOCKER_HOST: unix:///var/run/docker.sock
           
           # ========== Terraform Apply ==========
       - name: Terraform Apply
@@ -76,11 +79,14 @@ jobs:
           # 1. Map GitHub Secrets to Terraform Variables
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
-          
+          TF_VERSION: 1.9.0
+          DOCKER_HOST: unix:///var/run/docker.sock  # ← Also add this to ensure Terraform can talk to Docker on the runner
           # 2. Construct the Image using your APP_IMAGE secret + the Dynamic Tag
           # Assuming secrets.APP_IMAGE is "ghcr.io/mehdij0uh4ri/petclinic"
           TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
+          DOCKER_API_VERSION: "1.44"
           
+
       # ========== Get Outputs ==========
       - name: Get Terraform Outputs
         working-directory: infrastructure
@@ -145,6 +151,9 @@ jobs:
       # ========== Cleanup (Optional) ==========
       - name: Terraform Destroy
         if: always()
+        env:
+          DOCKER_API_VERSION: '1.44'  # ← Must have this too
+          DOCKER_HOST: unix:///var/run/docker.sock
         working-directory: infrastructure
         run: terraform destroy -auto-approve -var-file="terraform.tfvars"
         continue-on-error: true
