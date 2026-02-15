@@ -44,8 +44,13 @@ jobs:
       - name: Terraform Plan
         working-directory: infrastructure
         run: terraform plan -var-file="terraform.tfvars"
-      
-# ========== Terraform Apply ==========
+        env:
+          # ADD THESE LINES HERE TOO:
+          TF_VAR_db_username: ${{ secrets.DB_USER }}
+          TF_VAR_db_password: ${{ secrets.DB_PASS }}
+          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"      
+
+          # ========== Terraform Apply ==========
       - name: Terraform Apply
         working-directory: infrastructure
         run: terraform apply -auto-approve -var-file="terraform.tfvars"
