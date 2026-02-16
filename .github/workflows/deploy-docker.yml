@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-22.04
     if: github.event.workflow_run.conclusion == 'success'
     
+    permissions:
+      contents: read
+      packages: read  # ← NEED THIS to pull from GHCR
+    
     steps:
       # ========== Checkout ==========
       - name: Checkout code
@@ -25,60 +29,37 @@ jobs:
       - name: Set Image Name
         run: echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')/petclinic" >> $GITHUB_ENV
 
-      # ========== FIX: Configure Docker Daemon (Don't Reinstall) ==========
-      - name: Configure Docker Daemon for Terraform Compatibility
+      # ========== Configure Docker ==========
+      - name: Configure Docker for Terraform
         run: |
           set -e
           
-          echo "=========================================="
-          echo "Docker Configuration for Terraform"
-          echo "=========================================="
-          echo ""
-          
-          # Show current Docker version
-          echo "Current Docker Status:"
-          docker --version
-          docker version | grep -E "Version|API version|minimum" | head -5
-          echo ""
-          
-          # Create daemon.json to allow older API versions
-          echo "Creating Docker daemon configuration..."
+          echo "Configuring Docker daemon..."
           sudo mkdir -p /etc/docker
           
-          # This allows the Docker daemon to accept clients using older API versions
-          # Terraform Docker provider uses API 1.41, but Docker 29 requires 1.44+
-          # By setting min-api-version to 1.32, we allow 1.41 to work
           sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
           {
             "min-api-version": "1.32"
           }
           EOF
           
-          echo "Docker daemon config created:"
-          cat /etc/docker/daemon.json
-          echo ""
-          
-          # Restart Docker daemon to apply config
-          echo "Restarting Docker daemon..."
           sudo systemctl daemon-reload
           sudo systemctl restart docker
+          sleep 2
           
-          # Wait for Docker to be ready
-          echo "Waiting for Docker to restart..."
-          sleep 3
+          echo "✅ Docker configured"
+
+      # ========== CRITICAL: Login Docker to GHCR ==========
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "🔐 Authenticating Docker with GHCR..."
           
-          # Verify Docker is running
-          echo "Verifying Docker..."
-          docker ps > /dev/null && echo "✅ Docker is running"
+          # Use GitHub token to authenticate
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u ${{ github.actor }} \
+            --password-stdin
           
-          # Test connectivity
-          echo "Testing Docker connectivity..."
-          docker run --rm hello-world > /dev/null && echo "✅ Docker works"
-          
-          echo ""
-          echo "=========================================="
-          echo "✅ Docker configured for Terraform"
-          echo "=========================================="
+          echo "✅ Docker authenticated with GHCR"
 
       # ========== Setup Terraform ==========
       - name: Setup Terraform
@@ -99,9 +80,7 @@ jobs:
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
           TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
-        run: |
-          echo "Planning Terraform deployment..."
-          terraform plan -var-file="terraform.tfvars" -no-color
+        run: terraform plan -var-file="terraform.tfvars" -no-color
 
       # ========== Terraform Apply ==========
       - name: Terraform Apply
@@ -111,80 +90,58 @@ jobs:
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
           TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
-        run: |
-          echo "Applying Terraform configuration..."
-          terraform apply -auto-approve -var-file="terraform.tfvars" -no-color
+        run: terraform apply -auto-approve -var-file="terraform.tfvars" -no-color
 
       # ========== Get Outputs ==========
       - name: Get Terraform Outputs
         working-directory: infrastructure
         if: success()
         run: |
-          echo "=== Deployment Successful ===" >> $GITHUB_STEP_SUMMARY
+          echo "=== Deployment Complete ===" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Infrastructure deployed successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application URL:** $(terraform output -raw app_url 2>/dev/null || echo 'http://localhost:8080')" >> $GITHUB_STEP_SUMMARY
-          echo "**Database Host:** $(terraform output -raw mysql_host 2>/dev/null || echo 'petclinic')" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** $(terraform output -raw app_url 2>/dev/null || echo 'http://localhost:8080')" >> $GITHUB_STEP_SUMMARY
+          echo "**Database:** $(terraform output -raw mysql_host 2>/dev/null || echo 'petclinic')" >> $GITHUB_STEP_SUMMARY
       
       # ========== Wait for Application ==========
       - name: Wait for Application
         run: |
-          echo "Waiting for application to start (max 120 seconds)..."
-          max_attempts=120
-          attempt=0
-          
-          while [ $attempt -lt $max_attempts ]; do
+          echo "⏳ Waiting for application (max 120 seconds)..."
+          for i in {1..120}; do
             if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
               echo "✅ Application is ready!"
               exit 0
             fi
-            
-            attempt=$((attempt + 1))
-            if [ $((attempt % 20)) -eq 0 ]; then
-              echo "Still waiting... ($attempt/$max_attempts)"
-            fi
+            [ $((i % 20)) -eq 0 ] && echo "Attempt $i/120..."
             sleep 1
           done
-          
-          echo "❌ Application failed to start"
+          echo "❌ Application timeout"
           exit 1
       
       # ========== Smoke Tests ==========
       - name: Run Smoke Tests
         run: |
           echo "Running smoke tests..."
-          echo ""
-          
-          # Test health endpoint
           if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
             echo "✅ Health check passed"
           else
             echo "❌ Health check failed"
             exit 1
           fi
-          
-          echo "✅ All smoke tests passed"
+          echo "✅ All tests passed"
       
-      # ========== Show Container Logs ==========
+      # ========== Show Logs ==========
       - name: Show Container Logs
         if: always()
         run: |
-          echo "=== Application Container Logs ===" 
+          echo "=== App Logs ===" 
           docker logs petclinic-app 2>&1 | tail -50 || true
-          
           echo ""
-          echo "=== MySQL Container Logs ===" 
+          echo "=== MySQL Logs ===" 
           docker logs petclinic 2>&1 | tail -50 || true
       
-      # ========== List Running Containers ==========
-      - name: List Running Containers
-        if: always()
-        run: |
-          echo "=== Running Containers ==="
-          docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" || true
-      
-      # ========== Save Connection Info ==========
+      # ========== Save Info ==========
       - name: Save Connection Info
         if: success()
         uses: actions/upload-artifact@v4
@@ -206,10 +163,7 @@ jobs:
         run: terraform destroy -auto-approve -var-file="terraform.tfvars" -no-color
         continue-on-error: true
 
-      # ========== Final Summary ==========
-      - name: Workflow Summary
+      # ========== Logout ==========
+      - name: Logout from GHCR
         if: always()
-        run: |
-          echo "=== Deployment Complete ==="
-          docker --version
-          echo "Terraform version: ${{ env.TF_VERSION }}"
+        run: docker logout ghcr.io || true
