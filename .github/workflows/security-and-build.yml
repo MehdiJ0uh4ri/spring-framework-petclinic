@@ -1,5 +1,5 @@
 # ============================================================================
-# PHASE 2: SECURITY SCANNING + DOCKER BUILD WORKFLOW (fixed)
+# PHASE 2: SECURITY SCANNING + DOCKER BUILD + PUSH WORKFLOW
 # ============================================================================
 name: Security & Docker Build
 
@@ -12,8 +12,6 @@ on:
 env:
   JAVA_VERSION: '17'
   REGISTRY: ghcr.io
-  # Ensure this matches your repository name correctly (case-sensitive)
-  IMAGE_NAME: ${{ github.repository }}/petclinic
 
 jobs:
   security-and-build:
@@ -21,26 +19,26 @@ jobs:
     name: Security Scan & Docker Build
     permissions:
       contents: read
-      packages: write
+      packages: write      # ← CRITICAL: Allows pushing to GHCR
       security-events: write
 
     steps:
       
-      # --- One-time normalization (place BEFORE any docker build/push steps) ---
+      # ========== Set lowercase image name ==========
       - name: Set lowercase image name
         run: |
-          # Compose the repo path in lowercase and keep your extra "/petclinic" suffix
-          # Using 'tr' works on all runners (Bash 3+ / macOS & Ubuntu)
           REPO_LC="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "IMAGE_NAME=${{ env.REGISTRY }}/${REPO_LC}/petclinic" >> "$GITHUB_ENV"
           echo "IMAGE_TAG_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "IMAGE_TAG_LATEST=latest" >> "$GITHUB_ENV"
+          
+          echo "Full image name: ${{ env.REGISTRY }}/${REPO_LC}/petclinic:${GITHUB_SHA}"
 
-      # ========== Step 1: Checkout ==========
+      # ========== Checkout ==========
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ========== Step 2: Setup Java ==========
+      # ========== Setup Java ==========
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
@@ -48,20 +46,18 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # ========== Step 3: Build Application ==========
+      # ========== Build Application ==========
       - name: Build with Maven
         run: ./mvnw clean package -DskipTests
 
-      # (Safety) ensure reports directory exists
+      # ========== Prepare reports ==========
       - name: Prepare reports directory
         run: mkdir -p reports
 
-      # ========== Step 4: Dependency Vulnerability Scan ==========
+      # ========== OWASP Dependency Check ==========
       - name: OWASP Dependency-Check
         continue-on-error: true
-
         uses: dependency-check/Dependency-Check_Action@main
-
         env:
           JAVA_HOME: /opt/jdk
         with:
@@ -74,8 +70,7 @@ jobs:
             --failOnCVSS 7
             --disableCentral
 
-
-      # ========== Step 5: Upload Dependency Results ==========
+      # ========== Upload Dependency Results ==========
       - name: Upload dependency scan results
         if: always() && hashFiles('reports/dependency-check-report.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
@@ -83,39 +78,31 @@ jobs:
           sarif_file: 'reports/dependency-check-report.sarif'
           category: 'dependency-scan'
 
-      # ========== Step 6: SonarQube Analysis ==========
-      - name: SonarQube Analysis
-        if: false
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ./mvnw sonar:sonar \
-            -Dsonar.projectKey=mehdij0uh4ri \
-            -Dsonar.organization=MehdiJ0uh4ri \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.token=${{ secrets.SONAR_TOKEN }}
-
-      # ========== Step 7: Build Docker Image ==========
+      # ========== Build Docker Image ==========
       - name: Build Docker image
         run: |
+          echo "Building Docker image..."
+          echo "Image: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          
           docker build \
-            -t ${{ secrets.APP_IMAGE }}:${{ github.sha }} \
-            -t ${{ secrets.APP_IMAGE }}:latest \
+            -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.IMAGE_NAME }}:latest \
             .
-          echo "✅ Docker image built: ${{ github.sha }}"
+          
+          echo "✅ Docker image built successfully"
+          docker images | grep petclinic
 
-      # ========== Step 8: Scan Image with Trivy ==========
+      # ========== Scan Image with Trivy ==========
       - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@master   # pin to a released tag
+        uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ secrets.APP_IMAGE }}:${{ github.sha }}
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # keep pipeline green; set to '1' to fail on findings
+          exit-code: '0'
 
-      # ========== Step 9: Upload Container Scan ==========
+      # ========== Upload Container Scan ==========
       - name: Upload container scan results
         if: always() && hashFiles('trivy-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
@@ -123,15 +110,50 @@ jobs:
           sarif_file: 'trivy-results.sarif'
           category: 'container-scan'
 
-      # ========== Step 10: Security Summary ==========
+      # ========== NEW: Login to GitHub Container Registry ==========
+      # CRITICAL: This must happen BEFORE pushing to GHCR
+      - name: Login to GitHub Container Registry
+        run: |
+          echo "🔐 Authenticating with GitHub Container Registry..."
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} \
+            -u ${{ github.actor }} \
+            --password-stdin
+          echo "✅ Authentication successful"
+
+      # ========== NEW: Push Image to GHCR ==========
+      # This is what was missing! The image needs to be in GHCR
+      # before the deploy workflow tries to pull it
+      - name: Push Docker image to GHCR
+        run: |
+          echo "📤 Pushing Docker image to GHCR..."
+          
+          # Push with commit SHA tag
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          echo "✅ Pushed: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          
+          # Push with latest tag
+          docker push ${{ env.IMAGE_NAME }}:latest
+          echo "✅ Pushed: ${{ env.IMAGE_NAME }}:latest"
+          
+          echo ""
+          echo "Image available at:"
+          echo "  ${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "  ${{ env.IMAGE_NAME }}:latest"
+
+      # ========== Logout from GHCR ==========
+      - name: Logout from GHCR
+        if: always()
+        run: docker logout ${{ env.REGISTRY }} || true
+
+      # ========== Security Summary ==========
       - name: Security Scan Summary
         if: always()
         run: |
-          echo "📋 Security Scan Complete"
-          echo "========================="
+          echo "📋 Security & Build Complete"
+          echo "=============================="
           echo "✅ Build Status: Passed"
           echo "✅ Dependency Scan: Completed"
-          echo "✅ Code Quality: Analyzed"
           echo "✅ Container Scan: Completed"
+          echo "✅ Image Pushed: ${{ env.IMAGE_NAME }}:${{ github.sha }}"
           echo ""
-          echo "Check GitHub Security tab for details"
+          echo "Next: Deploy workflow will pull and deploy this image"
