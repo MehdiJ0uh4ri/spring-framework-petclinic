@@ -30,7 +30,7 @@ jobs:
         run: echo "IMAGE_NAME=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')/petclinic" >> $GITHUB_ENV
 
       # ========== Configure Docker ==========
-      - name: Configure Docker for Terraform
+      - name: Configure Docker for Terraform 
         run: |
           set -e
           
