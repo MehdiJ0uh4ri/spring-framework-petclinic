@@ -76,6 +76,7 @@ jobs:
         run: |
           echo "Applying Terraform configuration..."
           echo "Pulling image: ${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
+          sleep 20  # ← ADD THIS LINE (wait for MySQL to initialize)
           terraform apply -auto-approve -var-file="terraform.tfvars" -no-color
 
       # ========== Get Outputs ==========
