@@ -3,7 +3,7 @@ name: Deploy with Terraform + Docker
 on:
   workflow_run:
     workflows: ["Security & Docker Build"]
-    branches: [ develop ]
+    branches: [ main ]
     types: [completed]
 
 env:

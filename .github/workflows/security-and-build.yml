@@ -5,9 +5,9 @@ name: Security & Docker Build
 
 on:
   push:
-    branches: [ develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ develop ]
+    branches: [ main ]
 
 env:
   JAVA_VERSION: '17'
