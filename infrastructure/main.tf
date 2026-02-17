@@ -56,7 +56,9 @@ resource "docker_image" "app" {
 resource "docker_container" "app" {
     name  = "${var.project_name}-app"
     image = docker_image.app.image_id
-
+    wait         = true
+    wait_timeout = 120
+    
   env = [
     "SPRING_DATASOURCE_URL=jdbc:mysql://${docker_container.mysql.name}:3306/${var.db_name}",
     "SPRING_DATASOURCE_USERNAME=${var.db_username}",
