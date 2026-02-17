@@ -21,3 +21,4 @@ target/
 #Terraform
 infrastructure\.terraformignore
 
+tf-apply.txt
