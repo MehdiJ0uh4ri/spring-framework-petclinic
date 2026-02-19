@@ -54,17 +54,11 @@ resource "docker_image" "app" {
 }
 
 resource "docker_container" "app" {
-    name  = "${var.project_name}-app"
-    image = docker_image.app.image_id
-    wait         = true
-    wait_timeout = 300
-    
-  env = [
-    "SPRING_DATASOURCE_URL=jdbc:mysql://${docker_container.mysql.name}:3306/${var.db_name}",
-    "SPRING_DATASOURCE_USERNAME=${var.db_username}",
-    "SPRING_DATASOURCE_PASSWORD=${var.db_password}",
-    "SPRING_PROFILES_ACTIVE=mysql"
-  ]
+  name  = "${var.project_name}-app"
+  image = docker_image.app.image_id
+  wait         = true
+  wait_timeout = 120
+  env = []  # H2 uses built-in config
 
   ports {
     internal = 8080
@@ -75,8 +69,8 @@ resource "docker_container" "app" {
     test     = ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
     interval = "30s"
     timeout  = "10s"
-    retries  = 5
-    start_period = "120s"
+    retries  = 3
+    start_period = "30s"
   }
 
   networks_advanced {
