@@ -53,6 +53,7 @@ resource "docker_image" "app" {
   keep_locally = true
 }
 
+
 resource "docker_container" "app" {
   name  = "${var.project_name}-app"
   image = docker_image.app.image_id
