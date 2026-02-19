@@ -66,7 +66,7 @@ resource "docker_container" "app" {
   }
 
   healthcheck {
-    test     = ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+    test     = ["CMD", "curl", "-f", "http://localhost:8080/"]
     interval = "30s"
     timeout  = "10s"
     retries  = 3

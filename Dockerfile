@@ -1,48 +1,17 @@
-# ============================================================================
-# Stage 1: Build
-# ============================================================================
-FROM maven:3.9-eclipse-temurin-17 AS builder
+# Use an official Jetty runtime as a parent image
+FROM jetty:11-jdk17
 
-WORKDIR /build
+# Remove the default webapp
+RUN rm -rf /var/lib/jetty/webapps/*
 
-# Copy only pom.xml first (for better caching)
-COPY pom.xml .
+# Copy the WAR file from the build context into the webapps folder
+COPY target/petclinic.war /var/lib/jetty/webapps/ROOT.war
 
-# FIX: Use 'mvn' directly. The base image already has it!
-# No need to copy mvnw or deal with Windows line endings.
-RUN mvn dependency:resolve
+# Install curl for health checks
+USER root
+RUN apt-get update && apt-get install -y curl && rm -rf /var/cache/apt/lists/*
+USER jetty
 
-# Copy source code
-COPY src ./src
-
-# Build application
-RUN mvn clean package -DskipTests
-
-# ============================================================================
-# Stage 2: Runtime (Minimal image)
-# ============================================================================
-FROM eclipse-temurin:17-jre-alpine
-
-# Install curl for health checks (minimal install)
-RUN apk add --no-cache curl
-
-# Create non-root user for security
-RUN addgroup -S petclinic && adduser -S petclinic -G petclinic
-
-WORKDIR /app
-
-# Copy JAR from builder
-COPY --from=builder --chown=petclinic:petclinic /build/target/*.jar app.jar
-
-# Switch to non-root user
-USER petclinic
-
-# Expose port
-EXPOSE 8080
-
-# Health check
+# Healthcheck - Check for the home page
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/actuator/health || exit 1
-
-# Run application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+  CMD curl -f http://localhost:8080/ || exit 1
