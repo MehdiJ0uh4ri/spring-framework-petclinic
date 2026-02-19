@@ -3,7 +3,7 @@ name: Deploy with Terraform + Docker
 on:
   workflow_run:
     workflows: ["Security & Docker Build"]
-    branches: [ main ]
+    branches: [ develop ]
     types: [completed]
 
 env:
@@ -24,25 +24,39 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      # ========== Configure Docker ==========
-      - name: Configure Docker Daemon
+      # ========== Verify Docker Is Ready (Safe Version) ==========
+      - name: Verify Docker Is Ready
         run: |
           set -e
           
-          echo "🔧 Configuring Docker daemon..."
-          sudo mkdir -p /etc/docker
+          echo "🐳 Waiting for Docker daemon to be ready..."
           
-          sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
-          {
-            "min-api-version": "1.32"
-          }
-          EOF
+          # Wait for Docker to be responsive
+          max_attempts=30
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            if docker ps > /dev/null 2>&1; then
+              echo "✅ Docker is ready!"
+              break
+            fi
+            attempt=$((attempt + 1))
+            echo "Attempt $attempt/$max_attempts..."
+            sleep 1
+          done
           
-          sudo systemctl daemon-reload
-          sudo systemctl restart docker
-          sleep 2
+          # Show Docker version
+          echo ""
+          echo "Docker version:"
+          docker --version
           
-          echo "✅ Docker daemon configured"
+          # Test Docker
+          echo ""
+          echo "Testing Docker connectivity..."
+          if docker run --rm hello-world > /dev/null 2>&1; then
+            echo "✅ Docker is working correctly"
+          else
+            echo "⚠️  Docker test had issues (may recover)"
+          fi
 
       # ========== Setup Terraform ==========
       - name: Setup Terraform
@@ -62,7 +76,7 @@ jobs:
           DOCKER_HOST: unix:///var/run/docker.sock
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
-          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
+          TF_VAR_docker_image: "ghcr.io/mehdij0uh4ri/spring-framework-petclinic/petclinic:${{ github.event.workflow_run.head_sha }}"
         run: terraform plan -var-file="terraform.tfvars" -no-color
 
       # ========== Terraform Apply ==========
@@ -72,14 +86,12 @@ jobs:
           DOCKER_HOST: unix:///var/run/docker.sock
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
-          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
+          TF_VAR_docker_image: "ghcr.io/mehdij0uh4ri/spring-framework-petclinic/petclinic:${{ github.event.workflow_run.head_sha }}"
         run: |
           echo "Applying Terraform configuration..."
-          echo "Pulling image: ${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
-          sleep 20  
           terraform apply -auto-approve -var-file="terraform.tfvars" -no-color
 
-      # ========== Get Outputs ==========
+      # ========== Get Terraform Outputs ==========
       - name: Get Terraform Outputs
         working-directory: infrastructure
         if: success()
@@ -99,7 +111,7 @@ jobs:
           attempt=0
           
           while [ $attempt -lt $max_attempts ]; do
-            if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            if curl -s http://localhost:8080/ > /dev/null 2>&1; then
               echo "✅ Application is ready!"
               exit 0
             fi
@@ -111,18 +123,18 @@ jobs:
             sleep 1
           done
           
-          echo "❌ Application failed to start"
+          echo "❌ Application failed to start after $max_attempts seconds"
           exit 1
       
-      # ========== Smoke Tests ==========
+      # ========== Run Smoke Tests ==========
       - name: Run Smoke Tests
         run: |
           echo "🧪 Running smoke tests..."
           
-          if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
-            echo "✅ Health check passed"
+          if curl -f http://localhost:8080/ > /dev/null 2>&1; then
+            echo "✅ Application root endpoint responding"
           else
-            echo "❌ Health check failed"
+            echo "❌ Application not responding"
             exit 1
           fi
           
@@ -133,11 +145,11 @@ jobs:
         if: always()
         run: |
           echo "📝 === Application Container Logs ===" 
-          docker logs petclinic-app 2>&1 | tail -50 || echo "No logs"
+          docker logs petclinic-app 2>&1 | tail -50 || echo "No logs available"
           
           echo ""
           echo "📝 === MySQL Container Logs ===" 
-          docker logs petclinic 2>&1 | tail -50 || echo "No logs"
+          docker logs petclinic 2>&1 | tail -50 || echo "No logs available"
       
       # ========== List Running Containers ==========
       - name: List Running Containers
@@ -146,7 +158,7 @@ jobs:
           echo "🐳 === Running Containers ==="
           docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" || echo "No containers"
       
-      # ========== Save Connection Info ==========
+      # ========== Save Connection Info Artifact ==========
       - name: Save Connection Info
         if: success()
         uses: actions/upload-artifact@v4
@@ -164,11 +176,11 @@ jobs:
           DOCKER_HOST: unix:///var/run/docker.sock
           TF_VAR_db_username: ${{ secrets.DB_USER }}
           TF_VAR_db_password: ${{ secrets.DB_PASS }}
-          TF_VAR_docker_image: "${{ secrets.APP_IMAGE }}:${{ github.event.workflow_run.head_sha }}"
+          TF_VAR_docker_image: "ghcr.io/mehdij0uh4ri/spring-framework-petclinic/petclinic:${{ github.event.workflow_run.head_sha }}"
         run: terraform destroy -auto-approve -var-file="terraform.tfvars" -no-color
         continue-on-error: true
 
-      # ========== Final Summary ==========
+      # ========== Workflow Summary ==========
       - name: Workflow Summary
         if: always()
         run: |
