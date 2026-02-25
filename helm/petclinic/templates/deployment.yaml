@@ -14,23 +14,44 @@ spec:
       labels:
         app: {{ include "petclinic.name" . }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: petclinic
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.env.springProfiles | quote }}
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.env.datasourceUrl | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: petclinic-db-secret
+                  key: db-username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: petclinic-db-secret
+                  key: db-password
           readinessProbe:
             httpGet:
               path: /
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /
               port: 8080
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 30
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

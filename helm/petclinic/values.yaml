@@ -1,17 +1,69 @@
-image:
-  repository: ghcr.io/OWNER/petclinic
-  tag: latest
-  pullPolicy: IfNotPresent
+# =============================================================================
+# Spring PetClinic — Helm Values
+# =============================================================================
 
+# -- Number of application pod replicas
 replicaCount: 1
 
+image:
+  repository: ghcr.io/mehdij0uh4ri/spring-framework-petclinic/petclinic
+  tag: latest
+  pullPolicy: Always
+
+# GHCR pull secret (created by the deploy pipeline)
+imagePullSecrets:
+  - name: ghcr-pull-secret
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
 service:
   type: NodePort
   port: 8080
   nodePort: 30080
 
+# ---------------------------------------------------------------------------
+# Ingress  (disabled by default — enable via --set ingress.enabled=true)
+# ---------------------------------------------------------------------------
 ingress:
   enabled: false
+  ingressClassName: traefik   # k3s default ingress controller
   host: petclinic.local
+  tls: false
+  
 
-resources: {}
+# ---------------------------------------------------------------------------
+# Application environment — Spring datasource config
+# Credentials are injected from the 'petclinic-db-secret' Kubernetes Secret.
+# ---------------------------------------------------------------------------
+env:
+  springProfiles: mysql        # activates Spring's mysql profile
+  datasourceUrl: "jdbc:mysql://petclinic-mysql:3306/petclinic?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+
+# ---------------------------------------------------------------------------
+# Resource requests / limits
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+# ---------------------------------------------------------------------------
+# MySQL Bitnami sub-chart
+# See: https://artifacthub.io/packages/helm/bitnami/mysql
+# ---------------------------------------------------------------------------
+mysql:
+  enabled: true
+  auth:
+    rootPassword: ""          # set via --set mysql.auth.rootPassword=<val> or Secret
+    database: petclinic
+    username: petclinic
+    password: ""              # set via --set mysql.auth.password=<val>
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+  fullnameOverride: petclinic-mysql   # ensures a stable DNS name used in datasourceUrl

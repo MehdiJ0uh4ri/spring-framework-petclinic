@@ -1,6 +1,12 @@
 apiVersion: v2
 name: petclinic
-description: Helm chart to deploy Spring Framework Petclinic (k3s)
+description: Helm chart to deploy Spring Framework Petclinic on Kubernetes (k3s)
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "6.2.8"
+
+dependencies:
+  - name: mysql
+    version: "11.1.19"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mysql.enabled
