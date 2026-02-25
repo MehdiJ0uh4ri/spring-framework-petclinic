@@ -1,10 +1,6 @@
-project_name  = "petclinic"
-#app_version   = "latest"
-app_context   = "."
-db_name       = "petclinic"
-enable_prometheus = false
+namespace     = "petclinic"
 
-# moved these to github secrets
-
-#db_username   = "petclinic"
-#db_password   = "petclinic"
+# These are set as GitHub secrets / env vars in CI — do NOT commit values here:
+# TF_VAR_kubeconfig_raw  = "<content of KUBECONFIG_DEV secret>"
+# TF_VAR_ghcr_username   = "<your-github-username>"
+# TF_VAR_ghcr_token      = "<github-token-with-read:packages>"

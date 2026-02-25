@@ -1,139 +1,59 @@
 terraform {
   required_providers {
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0.2"
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.30"
     }
   }
 }
 
-provider "docker" {
-  host = "unix:///var/run/docker.sock"
+# ---------------------------------------------------------------------------
+# Parse the raw kubeconfig injected from the KUBECONFIG_DEV GitHub Secret
+# ---------------------------------------------------------------------------
+locals {
+  kubeconfig = yamldecode(var.kubeconfig_raw)
 }
 
-# MySQL Database
-resource "docker_image" "mysql" {
-  name          = "mysql:8.0"
-  keep_locally  = false
+provider "kubernetes" {
+  host                   = local.kubeconfig.clusters[0].cluster.server
+  cluster_ca_certificate = base64decode(local.kubeconfig.clusters[0].cluster["certificate-authority-data"])
+  client_certificate     = base64decode(local.kubeconfig.users[0].user["client-certificate-data"])
+  client_key             = base64decode(local.kubeconfig.users[0].user["client-key-data"])
 }
 
-resource "docker_container" "mysql" {
-  name  = var.project_name
-  image = docker_image.mysql.image_id
-
-  env = [
-    "MYSQL_ROOT_PASSWORD=${var.db_password}",
-    "MYSQL_DATABASE=${var.db_name}",
-    "MYSQL_USER=${var.db_username}",
-    "MYSQL_PASSWORD=${var.db_password}"
-  ]
-
-  ports {
-    internal = 3306
-    external = 3306
-  }
-
-  healthcheck {
-    test     = ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-    interval = "10s"
-    timeout  = "5s"
-    retries  = 5
-  }
-
-  networks_advanced {
-    name = docker_network.app.name
-  }
-}
-
-# Spring PetClinic Application
-resource "docker_image" "app" {
-    name = var.docker_image
-  
-
-  keep_locally = true
-}
-
-
-resource "docker_container" "app" {
-  name  = "${var.project_name}-app"
-  image = docker_image.app.image_id
-  wait         = true
-  wait_timeout = 120
-  env = []  # H2 uses built-in config
-
-  ports {
-    internal = 8080
-    external = 8080
-  }
-
-  healthcheck {
-    test     = ["CMD", "curl", "-f", "http://localhost:8080/"]
-    interval = "30s"
-    timeout  = "10s"
-    retries  = 3
-    start_period = "30s"
-  }
-
-  networks_advanced {
-    name = docker_network.app.name
-  }
-
-  depends_on = [docker_container.mysql]
-
-  logs = true
-}
-
-# Prometheus (Optional monitoring)
-resource "docker_image" "prometheus" {
-  count         = var.enable_prometheus ? 1 : 0
-  name          = "prom/prometheus:latest"
-  keep_locally  = false
-}
-
-resource "docker_container" "prometheus" {
-  count = var.enable_prometheus ? 1 : 0
-  name  = "${var.project_name}-prometheus"
-  image = docker_image.prometheus[0].image_id
-
-  ports {
-    internal = 9090
-    external = 9090
-  }
-
-  command = [
-    "--config.file=/etc/prometheus/prometheus.yml",
-    "--storage.tsdb.path=/prometheus"
-  ]
-
-  volumes {
-    host_path      = "${var.app_context}/monitoring/prometheus.yml"
-    container_path = "/etc/prometheus/prometheus.yml"
-    read_only      = true
-  }
-
-  networks_advanced {
-    name = docker_network.app.name
-  }
-}
-
-# Docker Network
-resource "docker_network" "app" {
-  name   = "${var.project_name}-network"
-  driver = "bridge"
-}
-
-# Local file for connection info
-resource "local_file" "connection_info" {
-  content = jsonencode({
-    app_url       = "http://localhost:${docker_container.app.ports[0].external}"
-    mysql_host    = docker_container.mysql.name
-    mysql_port    = 3306
-    mysql_user    = var.db_username
-    mysql_pass    = var.db_password
-    containers    = {
-      app    = docker_container.app.name
-      mysql  = docker_container.mysql.name
+# ---------------------------------------------------------------------------
+# Namespace
+# ---------------------------------------------------------------------------
+resource "kubernetes_namespace" "petclinic" {
+  metadata {
+    name = var.namespace
+    labels = {
+      "managed-by" = "terraform"
+      "project"    = "petclinic"
     }
-  })
-  filename = "${path.module}/connection-info.json"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# GHCR Image Pull Secret
+# ---------------------------------------------------------------------------
+resource "kubernetes_secret" "ghcr_pull_secret" {
+  metadata {
+    name      = "ghcr-pull-secret"
+    namespace = kubernetes_namespace.petclinic.metadata[0].name
+  }
+
+  type = "kubernetes.io/dockerconfigjson"
+
+  data = {
+    ".dockerconfigjson" = jsonencode({
+      auths = {
+        "ghcr.io" = {
+          username = var.ghcr_username
+          password = var.ghcr_token
+          auth     = base64encode("${var.ghcr_username}:${var.ghcr_token}")
+        }
+      }
+    })
+  }
 }

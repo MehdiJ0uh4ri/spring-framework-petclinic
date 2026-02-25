@@ -1,40 +1,22 @@
-variable "project_name" {
-  type    = string
-  default = "petclinic"
-}
-
-variable "app_version" {
-  type    = string
-  default = "latest"
-}
-
-variable "app_context" {
+variable "kubeconfig_raw" {
   type        = string
-  description = "Build context (usually repo root)"
-  default     = "."
+  description = "Raw kubeconfig YAML content (from KUBECONFIG_DEV GitHub Secret)"
+  sensitive   = true
 }
 
-variable "db_name" {
-  type    = string
-  default = "petclinic"
-}
-
-variable "db_username" {
-  type      = string
-  sensitive = true # Hides value in CLI output
-}
-
-variable "db_password" {
-  type      = string
-  sensitive = true
-}
-
-variable "enable_prometheus" {
-  type    = bool
-  default = false
-}
-
-variable "docker_image" {
-  description = "The full Docker image name to deploy (e.g., ghcr.io/user/repo:sha)"
+variable "namespace" {
   type        = string
+  description = "Kubernetes namespace for the petclinic application"
+  default     = "petclinic"
+}
+
+variable "ghcr_username" {
+  type        = string
+  description = "GitHub username for GHCR image pull secret"
+}
+
+variable "ghcr_token" {
+  type        = string
+  description = "GitHub token with read:packages scope"
+  sensitive   = true
 }

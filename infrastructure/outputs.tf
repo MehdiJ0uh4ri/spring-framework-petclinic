@@ -1,19 +1,9 @@
-output "app_url" {
-  value = "http://localhost:${docker_container.app.ports[0].external}"
+output "namespace" {
+  value       = kubernetes_namespace.petclinic.metadata[0].name
+  description = "Kubernetes namespace where petclinic is deployed"
 }
 
-output "app_container_id" {
-  value = docker_container.app.id
-}
-
-output "mysql_container_id" {
-  value = docker_container.mysql.id
-}
-
-output "mysql_host" {
-  value = docker_container.mysql.name
-}
-
-output "connection_info_file" {
-  value = local_file.connection_info.filename
+output "ghcr_pull_secret_name" {
+  value       = kubernetes_secret.ghcr_pull_secret.metadata[0].name
+  description = "Name of the GHCR image pull secret"
 }
