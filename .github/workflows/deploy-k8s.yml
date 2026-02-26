@@ -1,8 +1,6 @@
 # =============================================================================
-# DEPLOY TO KUBERNETES (DEV)
+# DEPLOY TO KUBERNETES (DEV) — plain kubectl apply (no Helm)
 # Triggers after "Security & Docker Build" succeeds on main.
-# Deploys the app as Kubernetes pods into the remote k3s cluster
-# using the KUBECONFIG_DEV secret.
 # =============================================================================
 name: Deploy to Kubernetes (Dev)
 
@@ -27,70 +25,95 @@ jobs:
       packages: read
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
+      # ── Checkout ─────────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      # ── Compute image tag (same SHA used during the build) ─────────────────
-      - name: Compute image metadata
+      # ── Compute full image name ───────────────────────────────────────────────
+      - name: Compute image
         id: meta
         run: |
           REPO_LC="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          echo "image=${REGISTRY}/${REPO_LC}/petclinic" >> "$GITHUB_OUTPUT"
-          echo "tag=${{ github.event.workflow_run.head_sha }}"  >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${REPO_LC}/petclinic:${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
 
-      # ── Write kubeconfig ────────────────────────────────────────────────────
+      # ── Write kubeconfig ──────────────────────────────────────────────────────
       - name: Configure kubectl
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_DEV }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      # ── Set up kubectl ───────────────────────────────────────────────────────
+      # ── Set up kubectl ────────────────────────────────────────────────────────
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
 
-      # ── Verify cluster connectivity ──────────────────────────────────────────
+      # ── Verify cluster connectivity ───────────────────────────────────────────
       - name: Verify cluster connectivity
         run: |
           kubectl cluster-info
           kubectl get nodes
 
-      # ── Ensure namespace exists ──────────────────────────────────────────────
-      - name: Ensure namespace
-        run: |
-          kubectl get namespace "$NAMESPACE" 2>/dev/null \
-            || kubectl create namespace "$NAMESPACE"
+      # ── Inject secrets into manifests & apply ────────────────────────────────
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
 
-      # ── Create / refresh GHCR image pull secret ──────────────────────────────
+      - name: Apply DB secret
+        run: |
+          sed \
+            -e 's|__DB_USER__|${{ secrets.DB_USER }}|g' \
+            -e 's|__DB_PASS__|${{ secrets.DB_PASS }}|g' \
+            k8s/secret.yaml | kubectl apply -f -
+
+      - name: Apply MySQL
+        run: kubectl apply -f k8s/mysql.yaml
+
+      - name: Wait for MySQL to be ready
+        run: |
+          kubectl rollout status statefulset/mysql \
+            --namespace "$NAMESPACE" --timeout=120s
+
+      # ── Create / refresh GHCR pull secret ────────────────────────────────────
       - name: Create GHCR pull secret
         run: |
+          GHCR_PASSWORD="${{ secrets.GHCR_PAT }}"
+          if [ -z "$GHCR_PASSWORD" ]; then
+            echo "⚠️  GHCR_PAT not set, falling back to GITHUB_TOKEN"
+            GHCR_PASSWORD="${{ secrets.GITHUB_TOKEN }}"
+          fi
           kubectl create secret docker-registry ghcr-pull-secret \
             --namespace "$NAMESPACE" \
             --docker-server="${REGISTRY}" \
             --docker-username="${{ github.actor }}" \
-            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            --docker-password="$GHCR_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # =========================================================================
-      # ⚠️ INSERT YOUR NEW DEPLOYMENT LOGIC HERE (e.g., Terraform or kubectl apply)
-      # =========================================================================
+      # ── Inject image tag into deployment & apply ──────────────────────────────
+      - name: Apply app deployment
+        run: |
+          sed 's|__IMAGE__|${{ steps.meta.outputs.image }}|g' \
+            k8s/deployment.yaml | kubectl apply -f -
 
-      # ── Post-deploy summary ──────────────────────────────────────────────────
+      - name: Apply app service
+        run: kubectl apply -f k8s/service.yaml
+
+      # ── Wait for rollout ──────────────────────────────────────────────────────
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/petclinic \
+            --namespace "$NAMESPACE" --timeout=120s
+
+      # ── Summary ───────────────────────────────────────────────────────────────
       - name: Deployment summary
         if: always()
         run: |
-          echo "## 🚀 Kubernetes Status Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 🚀 Kubernetes Deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | \`${{ steps.meta.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Namespace | \`$NAMESPACE\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Target Image | \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Pods Currently Running in Namespace" >> "$GITHUB_STEP_SUMMARY"
-          kubectl get pods -n "$NAMESPACE" \
-            -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,READY:.status.containerStatuses[0].ready' \
-            --no-headers 2>/dev/null \
-            | awk '{print "| "$1" | "$2" | "$3" |"}' >> "$GITHUB_STEP_SUMMARY" || true
+          echo "### Pods" >> "$GITHUB_STEP_SUMMARY"
+          kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+            | awk '{print "| "$1" | "$4" | "$3" |"}' >> "$GITHUB_STEP_SUMMARY" || true
