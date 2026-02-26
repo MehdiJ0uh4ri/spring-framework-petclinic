@@ -21,21 +21,8 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: mysql
-            - name: SPRING_DATASOURCE_URL
-              value: "jdbc:mysql://mysql.petclinic.svc.cluster.local:3306/petclinic?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-            - name: SPRING_DATASOURCE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: petclinic-db-secret
-                  key: db-username
-            - name: SPRING_DATASOURCE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: petclinic-db-secret
-                  key: db-password
+          # No SPRING_PROFILES_ACTIVE set → defaults to 'jpa' with H2 in-memory
+          # This matches the working Docker deployment exactly.
           readinessProbe:
             httpGet:
               path: /

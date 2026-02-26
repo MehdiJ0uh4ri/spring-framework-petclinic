@@ -1,6 +1,7 @@
 # =============================================================================
 # DEPLOY TO KUBERNETES (DEV) — plain kubectl apply (no Helm)
 # Triggers after "Security & Docker Build" succeeds on main.
+# Uses H2 in-memory DB (default jpa profile) — same as the working Docker setup.
 # =============================================================================
 name: Deploy to Kubernetes (Dev)
 
@@ -55,26 +56,11 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
 
-      # ── Inject secrets into manifests & apply ────────────────────────────────
+      # ── Namespace ────────────────────────────────────────────────────────────
       - name: Apply namespace
         run: kubectl apply -f k8s/namespace.yaml
 
-      - name: Apply DB secret
-        run: |
-          sed \
-            -e 's|__DB_USER__|${{ secrets.DB_USER }}|g' \
-            -e 's|__DB_PASS__|${{ secrets.DB_PASS }}|g' \
-            k8s/secret.yaml | kubectl apply -f -
-
-      - name: Apply MySQL
-        run: kubectl apply -f k8s/mysql.yaml
-
-      - name: Wait for MySQL to be ready
-        run: |
-          kubectl rollout status statefulset/mysql \
-            --namespace "$NAMESPACE" --timeout=120s
-
-      # ── Create / refresh GHCR pull secret ────────────────────────────────────
+      # ── GHCR pull secret ─────────────────────────────────────────────────────
       - name: Create GHCR pull secret
         run: |
           GHCR_PASSWORD="${{ secrets.GHCR_PAT }}"
@@ -89,7 +75,7 @@ jobs:
             --docker-password="$GHCR_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # ── Inject image tag into deployment & apply ──────────────────────────────
+      # ── Deploy app ───────────────────────────────────────────────────────────
       - name: Apply app deployment
         run: |
           sed 's|__IMAGE__|${{ steps.meta.outputs.image }}|g' \
@@ -113,6 +99,7 @@ jobs:
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| Image | \`${{ steps.meta.outputs.image }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Namespace | \`$NAMESPACE\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| App URL | \`http://$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'):30080\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Pods" >> "$GITHUB_STEP_SUMMARY"
           kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
